@@ -162,6 +162,7 @@ public class TcpServer {
             this.socket = socket;
             try{
                 socket.setTcpNoDelay(true);
+                socket.setSoTimeout(60000);
 
                 this.out = new PrintWriter(socket.getOutputStream(), true);
                 this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -254,7 +255,8 @@ public class TcpServer {
                 synchronized (clients) {
                     for (ClientHandler c : clients) {
                         if (c.currentUser != null && c.currentUser.getId() == user.getId()) {
-                            sendPacket(PacketType.LOGIN_RESPONSE, "ALREADY"); return;
+                            c.disconnect();
+                            break;
                         }
                     }
                     clients.add(this);
