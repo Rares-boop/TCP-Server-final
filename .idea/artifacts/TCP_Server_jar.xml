@@ -1,0 +1,19 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="TCP Server:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/TCP_Server_jar</output-path>
+    <root id="archive" name="TCP Server.jar">
+      <element id="module-output" name="TCP Server" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/bcprov-jdk18on-1.83.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/postgresql-42.7.8.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/gson-2.10.1.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/HikariCP-7.0.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/slf4j-api-2.0.16.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/dotenv-java-3.0.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/bcpkix-jdk18on-1.83.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/chat-lib.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/slf4j-simple-2.0.16.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/bcrypt-0.10.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/bytes-1.6.1.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>

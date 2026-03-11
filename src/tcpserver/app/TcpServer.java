@@ -162,7 +162,6 @@ public class TcpServer {
             this.socket = socket;
             try{
                 socket.setTcpNoDelay(true);
-                socket.setSoTimeout(60000);
 
                 this.out = new PrintWriter(socket.getOutputStream(), true);
                 this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -243,6 +242,7 @@ public class TcpServer {
                     }
                 }
             } catch (Exception e) {
+                logger.log(Level.SEVERE, "Client thread crashed", e);
                 disconnect();
             }
         }
@@ -434,8 +434,15 @@ public class TcpServer {
 
         private void handleCreateChat(NetworkPacket packet) throws IOException {
             ChatDtos.CreateGroupDto dto = gson.fromJson(packet.getPayload(), ChatDtos.CreateGroupDto.class);
-            Database.insertGroupChat(dto.groupName);
-            GroupChat newChat = Database.selectGroupChatByName(dto.groupName);
+
+            GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), dto.targetUserId);
+            if (existing != null) {
+                System.out.println("[GROUP] Chat already exists between " + currentUser.getId() + " and " + dto.targetUserId);
+                sendPacket(PacketType.CREATE_CHAT_BROADCAST, new ChatDtos.NewChatBroadcastDto(existing, null));
+                return;
+            }
+
+            GroupChat newChat = Database.insertGroupChatReturningId(dto.groupName);
 
             if (newChat != null) {
                 Database.insertGroupMember(newChat.getId(), currentUser.getId());

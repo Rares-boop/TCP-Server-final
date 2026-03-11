@@ -196,21 +196,21 @@ public class Database {
         """;
         try (var connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query)) {
-
             ps.setString(1, usernameData);
-            ResultSet rs = ps.executeQuery();
 
-            if (rs.next()) {
-                return new User(
-                        rs.getInt("id"),
-                        rs.getString("username"),
-                        rs.getString("password_hash"),
-                        rs.getString("salt"),
-                        rs.getLong("created_at"),
-                        rs.getString("identity_key"),
-                        rs.getString("signed_pre_key"),
-                        rs.getString("signature")
-                );
+            try(ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new User(
+                            rs.getInt("id"),
+                            rs.getString("username"),
+                            rs.getString("password_hash"),
+                            rs.getString("salt"),
+                            rs.getLong("created_at"),
+                            rs.getString("identity_key"),
+                            rs.getString("signed_pre_key"),
+                            rs.getString("signature")
+                    );
+                }
             }
 
         } catch (SQLException e) {
@@ -224,9 +224,10 @@ public class Database {
         try (var connection = dataSource.getConnection();
              var stmt = connection.createStatement()) {
 
-            ResultSet rs = stmt.executeQuery("SELECT id, username FROM USERS");
-            while (rs.next()) {
-                users.add(rs.getInt("id") + "," + rs.getString("username"));
+            try(ResultSet rs = stmt.executeQuery("SELECT id, username FROM USERS")) {
+                while (rs.next()) {
+                    users.add(rs.getInt("id") + "," + rs.getString("username"));
+                }
             }
 
         } catch (SQLException e) {
@@ -235,7 +236,7 @@ public class Database {
         return users;
     }
 
-    public static synchronized boolean updateUserKeys(int userId, String ik, String spk, String sig) {
+    public static boolean updateUserKeys(int userId, String ik, String spk, String sig) {
         String query = "UPDATE users SET identity_key=?, signed_pre_key=?, signature=? WHERE id=?";
         try (var connection = dataSource.getConnection();
              var ps = connection.prepareStatement(query)) {
@@ -253,7 +254,7 @@ public class Database {
         }
     }
 
-    public static synchronized ChatDtos.GetBundleResponseDto selectUserKeys(int targetUserId) {
+    public static ChatDtos.GetBundleResponseDto selectUserKeys(int targetUserId) {
         String query = "SELECT identity_key, signed_pre_key, signature FROM users WHERE id=?";
         try (var connection = dataSource.getConnection();
              var ps = connection.prepareStatement(query)) {
@@ -291,34 +292,47 @@ public class Database {
         }
     }
 
-    public static void insertGroupChat(String name) {
-        String query = "INSERT INTO GROUP_CHATS(name) VALUES(?)";
+    public static GroupChat insertGroupChatReturningId(String name) {
+        String query = "INSERT INTO GROUP_CHATS(name) VALUES(?) RETURNING id";
         try (var connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query)) {
 
             ps.setString(1, name);
-            ps.executeUpdate();
+            try(ResultSet rs = ps.executeQuery()){
+                if(rs.next()){
+                    return new GroupChat(rs.getInt(1), name);
+                }
+            }
+
             logger.info("[DATABASE] Group chat inserted: " + name);
 
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "[DATABASE] Error inserting group chat", e);
         }
+        return null;
     }
 
-    public static GroupChat selectGroupChatByName(String groupChatName) {
-        String query = "SELECT * FROM GROUP_CHATS WHERE name=?";
+    public static GroupChat selectChatBetweenUsers(int userId1, int userId2) {
+        String query = """
+        SELECT gc.id, gc.name
+        FROM GROUP_CHATS gc
+        JOIN GROUP_MEMBERS gm1 ON gc.id = gm1.id_group AND gm1.id_user = ?
+        JOIN GROUP_MEMBERS gm2 ON gc.id = gm2.id_group AND gm2.id_user = ?
+        WHERE (SELECT COUNT(*) FROM GROUP_MEMBERS WHERE id_group = gc.id) = 2
+        LIMIT 1
+    """;
         try (var connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query)) {
-
-            ps.setString(1, groupChatName);
-            ResultSet rs = ps.executeQuery();
-
-            if (rs.next()) {
-                return new GroupChat(rs.getInt("id"), rs.getString("name"));
+            ps.setInt(1, userId1);
+            ps.setInt(2, userId2);
+            try(ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new GroupChat(rs.getInt("id"), rs.getString("name"));
+                }
             }
 
         } catch (SQLException e) {
-            logger.log(Level.SEVERE, "[DATABASE] Error fetching group chat by name: " + groupChatName, e);
+            logger.log(Level.SEVERE, "[DATABASE] Error checking existing chat", e);
         }
         return null;
     }
@@ -335,9 +349,10 @@ public class Database {
              PreparedStatement ps = connection.prepareStatement(query)) {
 
             ps.setInt(1, userId);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                chats.add(new GroupChat(rs.getInt(1), rs.getString(2)));
+            try(ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    chats.add(new GroupChat(rs.getInt(1), rs.getString(2)));
+                }
             }
 
         } catch (SQLException e) {
@@ -412,9 +427,10 @@ public class Database {
              PreparedStatement ps = connection.prepareStatement(query)) {
 
             ps.setInt(1, groupId);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                members.add(new GroupMember(rs.getInt(1), rs.getInt(2)));
+            try(ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    members.add(new GroupMember(rs.getInt(1), rs.getInt(2)));
+                }
             }
 
         } catch (SQLException e) {
@@ -433,8 +449,11 @@ public class Database {
             ps.setInt(3, senderId);
             ps.setInt(4, groupId);
 
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) return rs.getInt(1);
+            try(ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
 
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "[DATABASE] Error inserting message", e);
@@ -449,15 +468,16 @@ public class Database {
              PreparedStatement ps = connection.prepareStatement(query)) {
 
             ps.setInt(1, groupId);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                messages.add(new Message(
-                        rs.getInt(1),
-                        rs.getBytes(2),
-                        rs.getLong(3),
-                        rs.getInt(4),
-                        rs.getInt(5)
-                ));
+            try(ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    messages.add(new Message(
+                            rs.getInt(1),
+                            rs.getBytes(2),
+                            rs.getLong(3),
+                            rs.getInt(4),
+                            rs.getInt(5)
+                    ));
+                }
             }
 
         } catch (SQLException e) {

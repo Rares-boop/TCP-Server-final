@@ -31,3 +31,7 @@ bin/
 #Environment variables
 .env
 
+### JAR files ###
+*.jar
+META-INF/
+
