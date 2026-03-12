@@ -236,6 +236,7 @@ public class TcpServer {
                         case CALL_DENY:    handleCallDeny(packet); break;
                         case CALL_END:     handleCallEnd(packet); break;
                         case GET_CHAT_MEMBERS_REQUEST: handleGetChatMembers(packet); break;
+                        case CHECK_CHAT_EXISTS_REQUEST: handleCheckChatExists(packet); break;
                         case LOGOUT: disconnect(); break;
 
                         default: System.out.println("Unknown packet: " + packet.getType());
@@ -459,6 +460,13 @@ public class TcpServer {
 
                 System.out.println("[GROUP] Chat " + newChat.getId() + " created. Key routed to User " + dto.targetUserId);
             }
+        }
+
+        private void handleCheckChatExists(NetworkPacket packet) throws IOException {
+            int targetUserId = gson.fromJson(packet.getPayload(), Integer.class);
+            GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), targetUserId);
+            boolean exists = existing != null;
+            sendPacket(PacketType.CHECK_CHAT_EXISTS_RESPONSE, exists);
         }
 
         private void handleRenameChat(NetworkPacket packet) throws IOException {
