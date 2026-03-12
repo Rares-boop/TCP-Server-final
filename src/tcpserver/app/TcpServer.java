@@ -30,6 +30,9 @@ import javax.crypto.SecretKey;
 public class TcpServer {
     private static final List<ClientHandler> clients = new ArrayList<>();
 
+    private static final Object chatCreationLock = new Object();
+    private static final Object registerLock = new Object();
+
     public static final Map<Integer, InetSocketAddress> activeCallers = new ConcurrentHashMap<>();
     public static final Map<Integer, InetSocketAddress> activeVideo = new ConcurrentHashMap<>();
 
@@ -408,16 +411,29 @@ public class TcpServer {
         
         private void handleRegister(NetworkPacket packet) throws IOException {
             ChatDtos.AuthDto dto = gson.fromJson(packet.getPayload(), ChatDtos.AuthDto.class);
-            if (Database.selectUserByUsername(dto.username) != null) { sendPacket(PacketType.REGISTER_RESPONSE, "EXISTS"); return; }
-            String salt = PasswordUtils.generateSalt(50);
-            String hash = PasswordUtils.hashPassword(dto.password, salt);
-            Database.insertUser(dto.username, hash, salt, System.currentTimeMillis());
-            User newUser = Database.selectUserByUsername(dto.username);
-            this.currentUser = newUser;
-            synchronized (clients) { clients.add(this); }
-            sendPacket(PacketType.REGISTER_RESPONSE, newUser);
+            synchronized (registerLock) {
+                if (Database.selectUserByUsername(dto.username) != null) {
+                    sendPacket(PacketType.REGISTER_RESPONSE, "EXISTS");
+                    return;
+                }
+                String salt = PasswordUtils.generateSalt(50);
+                String hash = PasswordUtils.hashPassword(dto.password, salt);
+                Database.insertUser(dto.username, hash, salt, System.currentTimeMillis());
+                User newUser = Database.selectUserByUsername(dto.username);
+                this.currentUser = newUser;
+                synchronized (clients) {
+                    clients.add(this);
+                }
+                sendPacket(PacketType.REGISTER_RESPONSE, newUser);
+            }
         }
-        private void handleGetChats() throws IOException { if (currentUser != null) sendPacket(PacketType.GET_CHATS_RESPONSE, Database.selectGroupChatsByUserId(currentUser.getId())); }
+
+        private void handleGetChats() throws IOException {
+            if (currentUser != null) {
+                sendPacket(PacketType.GET_CHATS_RESPONSE, Database.selectGroupChatsByUserId(currentUser.getId()));
+            }
+        }
+
         private void handleGetUsersForAdd() throws IOException {
             List<String> rawUsers = Database.selectUsersAddConversation();
             List<String> filtered = new ArrayList<>();
@@ -436,37 +452,41 @@ public class TcpServer {
         private void handleCreateChat(NetworkPacket packet) throws IOException {
             ChatDtos.CreateGroupDto dto = gson.fromJson(packet.getPayload(), ChatDtos.CreateGroupDto.class);
 
-            GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), dto.targetUserId);
-            if (existing != null) {
-                System.out.println("[GROUP] Chat already exists between " + currentUser.getId() + " and " + dto.targetUserId);
-                sendPacket(PacketType.CREATE_CHAT_BROADCAST, new ChatDtos.NewChatBroadcastDto(existing, null));
-                return;
-            }
+            synchronized (chatCreationLock) {
+                GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), dto.targetUserId);
+                if (existing != null) {
+                    System.out.println("[GROUP] Chat already exists between " + currentUser.getId() + " and " + dto.targetUserId);
+                    sendPacket(PacketType.CREATE_CHAT_BROADCAST, new ChatDtos.NewChatBroadcastDto(existing, null));
+                    return;
+                }
 
-            GroupChat newChat = Database.insertGroupChatReturningId(dto.groupName);
+                GroupChat newChat = Database.insertGroupChatReturningId(dto.groupName);
 
-            if (newChat != null) {
-                Database.insertGroupMember(newChat.getId(), currentUser.getId());
-                Database.insertGroupMember(newChat.getId(), dto.targetUserId);
+                if (newChat != null) {
+                    Database.insertGroupMember(newChat.getId(), currentUser.getId());
+                    Database.insertGroupMember(newChat.getId(), dto.targetUserId);
 
-                ChatDtos.NewChatBroadcastDto packetForAlice = new ChatDtos.NewChatBroadcastDto(newChat, null);
-                NetworkPacket pAlice = new NetworkPacket(PacketType.CREATE_CHAT_BROADCAST, currentUser.getId(), packetForAlice);
-                sendDirectPacket(pAlice);
+                    ChatDtos.NewChatBroadcastDto packetForAlice = new ChatDtos.NewChatBroadcastDto(newChat, null);
+                    NetworkPacket pAlice = new NetworkPacket(PacketType.CREATE_CHAT_BROADCAST, currentUser.getId(), packetForAlice);
+                    sendDirectPacket(pAlice);
 
-                ChatDtos.NewChatBroadcastDto packetForBob = new ChatDtos.NewChatBroadcastDto(newChat, dto.initialKeyCiphertext);
-                NetworkPacket pBob = new NetworkPacket(PacketType.CREATE_CHAT_BROADCAST, currentUser.getId(), packetForBob);
+                    ChatDtos.NewChatBroadcastDto packetForBob = new ChatDtos.NewChatBroadcastDto(newChat, dto.initialKeyCiphertext);
+                    NetworkPacket pBob = new NetworkPacket(PacketType.CREATE_CHAT_BROADCAST, currentUser.getId(), packetForBob);
 
-                sendToSpecificUser(dto.targetUserId, pBob);
+                    sendToSpecificUser(dto.targetUserId, pBob);
 
-                System.out.println("[GROUP] Chat " + newChat.getId() + " created. Key routed to User " + dto.targetUserId);
+                    System.out.println("[GROUP] Chat " + newChat.getId() + " created. Key routed to User " + dto.targetUserId);
+                }
             }
         }
 
         private void handleCheckChatExists(NetworkPacket packet) throws IOException {
             int targetUserId = gson.fromJson(packet.getPayload(), Integer.class);
-            GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), targetUserId);
-            boolean exists = existing != null;
-            sendPacket(PacketType.CHECK_CHAT_EXISTS_RESPONSE, exists);
+            synchronized (chatCreationLock) {
+                GroupChat existing = Database.selectChatBetweenUsers(currentUser.getId(), targetUserId);
+                boolean exists = existing != null;
+                sendPacket(PacketType.CHECK_CHAT_EXISTS_RESPONSE, exists);
+            }
         }
 
         private void handleRenameChat(NetworkPacket packet) throws IOException {
