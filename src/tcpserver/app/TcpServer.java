@@ -111,33 +111,36 @@ public class TcpServer {
             udpSocket.setReceiveBufferSize(4 * 1024 * 1024);
 
             System.out.println("[SERVER] UDP Server active on port " + udpPort);
+            byte[] packetData = new byte[65000];
 
             while (isUdpServerRunning) {
-                byte[] packetData = new byte[65000];
                 DatagramPacket packet = new DatagramPacket(packetData, packetData.length);
                 udpSocket.receive(packet);
 
-                final DatagramPacket finalPacket = packet;
+                byte[] dataCopy = new byte[packet.getLength()];
+                System.arraycopy(packet.getData(), 0, dataCopy, 0, packet.getLength());
+                InetAddress senderAddress = packet.getAddress();
+                int senderPort = packet.getPort();
 
                 pool.submit(() -> {
                     try {
                         DataInputStream dis = new DataInputStream(
-                                new ByteArrayInputStream(finalPacket.getData())
+                                new ByteArrayInputStream(dataCopy)
                         );
 
                         int senderId = dis.readInt();
                         int targetId = dis.readInt();
 
                         InetSocketAddress senderAddr = new InetSocketAddress(
-                                finalPacket.getAddress(), finalPacket.getPort()
+                                senderAddress, senderPort
                         );
                         activeQueue.put(senderId, senderAddr);
 
                         InetSocketAddress targetAddr = activeQueue.get(targetId);
                         if (targetAddr != null) {
-                            finalPacket.setSocketAddress(targetAddr);
+                            DatagramPacket outPacket = new DatagramPacket(dataCopy, dataCopy.length, targetAddr);
                             synchronized (udpSocket) {
-                                udpSocket.send(finalPacket);
+                                udpSocket.send(outPacket);
                             }
                         }
                     } catch (Exception e) {
@@ -401,10 +404,24 @@ public class TcpServer {
                     byte[] encryptedBytes = CryptoHelper.encryptAndPack(sessionKey, clearJson);
                     String encryptedBase64 = Base64.getEncoder().encodeToString(encryptedBytes);
                     NetworkPacket envelope = new NetworkPacket(PacketType.SECURE_ENVELOPE, p.getSenderId(), encryptedBase64);
-                    synchronized (this) { out.println(envelope.toJson()); out.flush(); }
-                } catch (Exception e) { logger.log(Level.SEVERE, "Error encrypting/sending secure envelope", e); }
+                    synchronized (this) {
+                        out.println(envelope.toJson());
+                        out.flush();
+                        if(out.checkError()){
+                            throw new IOException("Socket not responding for writing ");
+                        }
+                    }
+                } catch (Exception e) {
+                    throw new IOException("Socket not responding for writing ");
+                }
             } else {
-                synchronized (this) { out.println(p.toJson()); out.flush(); }
+                synchronized (this) {
+                    out.println(p.toJson());
+                    out.flush();
+                    if(out.checkError()){
+                        throw new IOException("Socket not responding for writing ");
+                    }
+                }
             }
         }
         
@@ -524,6 +541,7 @@ public class TcpServer {
                             isOnline = true;
                         } catch (IOException e) {
                             logger.log(Level.WARNING, "Error sending to online client: {0}", targetUserId);
+                            client.disconnect();
                         }
                         break;
                     }
@@ -652,6 +670,9 @@ public class TcpServer {
 
             TcpServer.activeCallers.remove(currentUser.getId());
             TcpServer.activeCallers.remove(partnerId);
+
+            TcpServer.activeVideo.remove(currentUser.getId());
+            TcpServer.activeVideo.remove(partnerId);
         }
 
         private void handleGetChatMembers(NetworkPacket packet) throws IOException {
